@@ -1,0 +1,80 @@
+export async function detectMedicineHandler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { base64Image } = req.body;
+  if (!base64Image || typeof base64Image !== 'string') {
+    return res.status(400).json({ error: 'base64Image is required and must be a string' });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error('❌ GEMINI_API_KEY not configured');
+    return res.status(500).json({ error: 'Backend not configured: GEMINI_API_KEY missing' });
+  }
+
+  try {
+    console.log('🔍 [detect-medicine] Starting medicine detection...');
+    const startTime = Date.now();
+    
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: 'Identify ONLY the medicine name printed on this package. Return plain text only, no markdown or explanation.',
+                },
+                {
+                  inlineData: {
+                    mimeType: 'image/jpeg',
+                    data: base64Image,
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      }
+    );
+
+    const elapsed = Date.now() - startTime;
+    console.log(`⏱️  [detect-medicine] Gemini API responded in ${elapsed}ms`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ [detect-medicine] Gemini API error: ${response.status}`, errorText.substring(0, 200));
+      return res.status(response.status).json({ 
+        error: `Gemini API error: ${response.status}`,
+        details: errorText.substring(0, 200)
+      });
+    }
+
+    const data = await response.json();
+    console.log(`📦 [detect-medicine] Gemini response:`, JSON.stringify(data).substring(0, 300));
+    
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
+      console.error(`❌ [detect-medicine] Unexpected response structure:`, JSON.stringify(data).substring(0, 300));
+      return res.status(502).json({ 
+        error: 'Invalid Gemini API response format',
+        received: JSON.stringify(data).substring(0, 200)
+      });
+    }
+    
+    const medicineName = data.candidates[0].content.parts[0].text?.trim() || 'Unknown';
+    console.log(`✅ [detect-medicine] Medicine detected: ${medicineName}`);
+    return res.status(200).json({ medicineName });
+  } catch (error) {
+    console.error(`❌ [detect-medicine] Handler error:`, error.message);
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
+  }
+}

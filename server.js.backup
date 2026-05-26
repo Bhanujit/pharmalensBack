@@ -1,0 +1,60 @@
+import dotenv from 'dotenv';
+// Load local environment variables from backend/.env in development.
+dotenv.config();
+
+import express from 'express';
+import cors from 'cors';
+import { verifyFirebaseToken } from './middleware/auth.js';
+import { apiLimiter } from './middleware/rateLimiter.js';
+import { detectMedicineHandler } from './api/detect-medicine.js';
+import { medicineDetailsHandler } from './api/medicine-details.js';
+import { checkGeminiHandler } from './api/check-gemini.js';
+
+const PORT = Number(process.env.PORT || 3001);
+// FRONTEND_ORIGIN must match the Expo/web frontend origin in development or production.
+// For production, set this to the deployed frontend URL (e.g. https://your-app.vercel.app).
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:19006';
+
+const app = express();
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || origin === FRONTEND_ORIGIN) {
+        return callback(null, true);
+      }
+      return callback(new Error('CORS policy: origin not allowed'));
+    },
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
+app.use(express.json({ limit: '50mb' }));
+
+app.get('/health', (_req, res) => {
+  return res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Lightweight unauthenticated debug endpoint to check Gemini latency from emulator
+app.get('/debug/gemini', checkGeminiHandler);
+
+app.use('/api', verifyFirebaseToken);
+app.post('/api/detect-medicine', apiLimiter, detectMedicineHandler);
+app.post('/api/medicine-details', apiLimiter, medicineDetailsHandler);
+
+app.use((err, _req, res, _next) => {
+  console.error('Unhandled server error:', err?.message || err);
+  return res.status(500).json({ error: 'Internal server error' });
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 PharmaLens backend listening on port ${PORT}`);
+  console.log(`   GET  http://localhost:${PORT}/health`);
+  console.log(`   POST http://localhost:${PORT}/api/detect-medicine`);
+  console.log(`   POST http://localhost:${PORT}/api/medicine-details`);
+  console.log(`   GET  http://localhost:${PORT}/debug/gemini  (unauthenticated) - debug Gemini latency`);
+  console.log(`\n📋 Configuration:`)
+  console.log(`   Firebase Project: ${process.env.FIREBASE_PROJECT_ID || 'NOT SET'}`);
+  console.log(`   Gemini API Key: ${process.env.GEMINI_API_KEY ? '✅ Configured' : '❌ MISSING'}`);
+  console.log(`   CORS Origin: ${FRONTEND_ORIGIN}`);
+  console.log(`\n✅ Ready to receive requests from ${FRONTEND_ORIGIN}\n`);
+});

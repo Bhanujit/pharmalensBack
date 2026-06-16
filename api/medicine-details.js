@@ -99,6 +99,11 @@ STRICT RULES:
 - No explanations.
 - No extra text.
 
+CRITICAL: prescribedFor MUST be SELECTED ONLY from the user's medical conditions list.
+- You are NOT allowed to invent new conditions.
+- You are NOT allowed to return generic terms like "General Health", "Wellness", "Prevention", "Immune Support", or "General Care".
+- If none of the user's conditions match the medicine's actual purpose, return exactly: "Unknown"
+
 Medicine timing rules:
 
 - Acidity medicines are usually before meals.
@@ -117,6 +122,11 @@ You must determine:
 - realistic timing routine
 - short medicine description in the preferred language
 - Return all explanations in the preferred language.
+1. The medicine's PRIMARY medical indication.
+2. Compare that indication against the user's medical conditions.
+3. prescribedFor MUST be the single best matching condition from the user's condition list.
+4. If the medicine is not commonly used for any of the user's conditions, return "Unknown".
+5. Never return a condition that is not present in the user's condition list.
 You must focus on:
 - strip text
 - medicine packaging
@@ -192,6 +202,22 @@ ${safeConditions}
 
 Preferred Language:
 ${safeLanguage}
+
+CRITICAL INSTRUCTIONS:
+
+prescribedFor MUST be selected ONLY from the user's medical conditions list above.
+
+Procedure:
+1. Determine what this medicine's most likely medical indication is.
+2. Compare that indication against the user's medical conditions list.
+3. Choose the SINGLE BEST matching condition from their list.
+4. If NONE of the user's conditions clearly match, return exactly: "Unknown"
+
+Examples:
+- Medicine: Metformin | User Conditions: Diabetes, Hypertension → prescribedFor: "Diabetes"
+- Medicine: Amlodipine | User Conditions: Diabetes, Hypertension → prescribedFor: "Hypertension"
+- Medicine: Vitamin D | User Conditions: Diabetes, Hypertension → prescribedFor: "Unknown"
+
 Analyze this medicine carefully.
 
 Determine:
@@ -200,10 +226,12 @@ Determine:
 - proper dosage guidance
 - realistic medicine timing
 - whether it should be taken before food, after food, or before sleep
+- The BEST matching disease from user's condition list for prescribedFor
+
 Return all explanations in the Preferred Language.
 Keep only the medicine name in English.
 Provide translatedName in the preferred language.
-If uncertain return "Unknown".
+If uncertain, return "Unknown" for prescribedFor.
                   `,
                 },
               ],
@@ -260,10 +288,57 @@ If uncertain return "Unknown".
     parsed.translatedName =
       typeof parsed.translatedName === "string" ? parsed.translatedName : "";
     parsed.dosage = parsed.dosage || "Unknown";
-
-    parsed.prescribedFor = parsed.prescribedFor || "Unknown";
     parsed.description = parsed.description || "Unknown";
     parsed.routine = parsed.routine || {};
+    const normalizedConditions = userDiseases.map((d) =>
+      String(d).trim().toLowerCase(),
+    );
+
+    const aiCondition = String(parsed.prescribedFor || "")
+      .trim()
+      .toLowerCase();
+
+    if (
+      aiCondition !== "unknown" &&
+      !normalizedConditions.includes(aiCondition)
+    ) {
+      console.warn(
+        `Invalid prescribedFor returned by AI: ${parsed.prescribedFor}`,
+      );
+
+      parsed.prescribedFor = "Unknown";
+    }
+    // STRICT VALIDATION: Ensure prescribedFor is from user's disease list or "Unknown"
+    const validConditions = userDiseases
+      .map((d) => d.toLowerCase().trim())
+      .filter(Boolean);
+
+    const aiPrescribedFor =
+      typeof parsed.prescribedFor === "string"
+        ? parsed.prescribedFor.toLowerCase().trim()
+        : "";
+
+    // Check if AI's answer is in the user's disease list (case-insensitive)
+    const isValidCondition = validConditions.some(
+      (condition) => condition === aiPrescribedFor,
+    );
+
+    if (!isValidCondition && aiPrescribedFor !== "") {
+      console.warn(
+        `⚠️ [medicine-details] AI returned "${parsed.prescribedFor}" which is NOT in user's conditions. Setting to "Unknown".`,
+      );
+      parsed.prescribedFor = "Unknown";
+    } else if (!aiPrescribedFor) {
+      parsed.prescribedFor = "Unknown";
+    }
+
+    // Preserve original casing from user's disease list if matched
+    const matchedOriginal = userDiseases.find(
+      (d) => d.toLowerCase().trim() === aiPrescribedFor,
+    );
+    if (matchedOriginal && isValidCondition) {
+      parsed.prescribedFor = matchedOriginal;
+    }
 
     console.log(
       `✅ [medicine-details] Completed in ${Date.now() - startTime}ms`,

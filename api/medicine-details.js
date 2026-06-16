@@ -11,6 +11,8 @@ export async function medicineDetailsHandler(req, res) {
   const {
     medicineName,
     formulation = "Unknown",
+    strength = "Unknown",
+    packSize = "Unknown",
     userDiseases,
     preferredLanguage = "en",
   } = req.body;
@@ -83,43 +85,84 @@ export async function medicineDetailsHandler(req, res) {
             parts: [
               {
                 text: `
-You are an advanced pharmaceutical AI assistant.
-Your job is to provide highly accurate medicine medical analysis.
+You are a STRICT pharmaceutical information AI. Your responses must be PRECISE and FACTUAL ONLY.
 
-CRITICAL INSTRUCTIONS FOR FORMULATION & DOSAGE:
-- You MUST evaluate the specific "Formulation Type" context provided (e.g., Syrup, Tablet, Suspension, Capsule).
-- For SYRUPS, SUSPENSIONS, and LIQUIDS: The "dosage" and "routine" fields MUST use liquid volumetric measurements such as "ml", "teaspoon", or "spoonful" (e.g., "5ml", "10ml twice daily"). It is a critical hazard to mention "tablets" or "capsules" when the medicine formulation is a liquid.
-- For TABLETS and CAPSULES: Use solid counts like "1 tablet" or "1 capsule".
+=== FORMULATION CONSTRAINT (CRITICAL) ===
+Formulation Type Provided: ${safeFormulation}
+- You MUST ONLY use this formulation type in your dosage field.
+- If Formulation is "Syrup", dosage MUST describe syrup (e.g., "100 ml syrup", "5 ml syrup").
+- If Formulation is "Tablet", dosage MUST describe tablets (e.g., "500 mg tablet", "1 tablet").
+- If Formulation is "Capsule", dosage MUST describe capsules (e.g., "500 mg capsule", "1 capsule").
+- If Formulation is "Suspension", dosage MUST describe suspension (e.g., "200 mg/5ml suspension").
+- If Formulation is "Injection", dosage MUST describe injection (e.g., "1ml injection", "50 mg/ml").
+- NEVER return dosage that contradicts the formulation type.
+- NEVER invent quantity per day (e.g., "2 tablets daily", "5 ml twice daily").
 
-CRITICAL INSTRUCTIONS FOR PURPOSES ("prescribedFor"):
-- NEVER use vague generic filler terms like "general health", "overall wellness", "supplement", or "health maintenance".
-- State the explicit therapeutic indication/action of the medicine (e.g., "Fever reduction and pain relief", "Acid reflux management", "Bacterial infection control").
-- Cross-reference the "User Medical Conditions". If the medicine matches a user condition, ensure "prescribedFor" and "description" securely highlight that specific treatment value.
+=== PRESCRIBEDFOR FIELD (ABSOLUTE RULES) ===
+FORBIDDEN TERMS (NEVER use these):
+❌ "general health"
+❌ "overall wellness"
+❌ "supplement"
+❌ "health maintenance"
+❌ "nutritional support"
+❌ "well-being"
+❌ "health support"
+❌ "nutritional purposes"
 
-STRICT LANGUAGE & FORMATTING RULES:
-- All user-facing text strings must be returned translated entirely into the preferred language.
-- Preferred language code: ${safeLanguage}
-- medicineName must remain in English as provided.
-- translatedName should contain the translated/transliterated name in the preferred language. If preferredLanguage is "en", keep translatedName as an empty string "".
-- description must concisely summarize what the medicine does in 1-2 clear sentences.
-- If completely uncertain about the therapeutic usage, return "Unknown". Do not make up routines.
-- Return ONLY valid minified JSON. No Markdown block wraps. No explanations.
+REQUIRED: State SPECIFIC therapeutic action:
+✅ "Fever and pain relief"
+✅ "Bacterial infection treatment"
+✅ "Blood pressure management"
+✅ "Thyroid hormone replacement"
+✅ "Acid reflux treatment"
+✅ "Antibiotic for respiratory infection"
+✅ "Vitamin B12 deficiency treatment"
 
-Medicine timing rules:
-- Acidity medicines are usually before meals.
-- Antibiotics are usually after meals.
-- Sleeping medicines are before sleep.
-- Vitamins are usually after breakfast.
-- Painkillers are usually after meals.
-- Diabetes medicines depend on meal timing.
+IF medicine matches user conditions from: ${safeConditions}
+HIGHLIGHT that specific condition in prescribedFor and description.
 
-Return STRICT JSON using this schema:
+IF completely uncertain about therapeutic use:
+Return "Unknown" - DO NOT GUESS.
+
+=== DOSAGE FIELD RULES ===
+Dosage must describe ONLY:
+- Product strength (e.g., "500 mg", "100 ml")
+- Formulation type (e.g., "tablet", "syrup", "capsule")
+- Combined format: "500 mg tablet", "100 ml syrup"
+
+Dosage MUST NOT include:
+❌ Frequency (daily, twice daily)
+❌ Quantity per administration (2 tablets, 5 ml)
+❌ Administration instructions (take after meals, before sleep)
+❌ Duration (for 5 days)
+❌ Route assumptions
+
+=== LANGUAGE & OUTPUT ===
+Preferred Language: ${safeLanguage}
+- medicineName: Keep in ENGLISH (original)
+- translatedName: Translate to ${safeLanguage} (empty string if ${safeLanguage}="en")
+- description: Translate to ${safeLanguage}
+- prescribedFor: Translate to ${safeLanguage}
+- All routine timing descriptions: Translate to ${safeLanguage}
+
+=== TIMING RULES ===
+Based on medicine type (strict guidelines):
+- Acidity/Antacid medicines: beforeLunch=true, beforeDinner=true
+- Antibiotics: afterBreakfast=true, afterLunch=true, afterDinner=true
+- Sleeping aids: beforeSleep=true
+- Vitamins: afterBreakfast=true
+- Painkillers: afterMeals (breakfast, lunch, dinner as needed)
+
+IF formulation=${safeFormulation} is NOT in your knowledge:
+Return empty routine: { "beforeBreakfast": { "enabled": false }, ... all false ...}
+
+RETURN STRICT MINIFIED JSON ONLY:
 {
-  "medicineName": "string",
-  "translatedName": "string",
-  "dosage": "string",
-  "prescribedFor": "string",
-  "description": "string",
+  "medicineName": "string (English, as provided)",
+  "translatedName": "string (in ${safeLanguage}, empty if en)",
+  "dosage": "string (format + strength ONLY, matching ${safeFormulation})",
+  "prescribedFor": "string (specific therapeutic action, NEVER generic)",
+  "description": "string (1-2 sentences, what medicine does)",
   "routine": {
     "beforeBreakfast": { "enabled": boolean, "minutes": number },
     "afterBreakfast": { "enabled": boolean, "minutesAfterMealEnds": number },
@@ -141,14 +184,20 @@ Return STRICT JSON using this schema:
               role: "user",
               parts: [
                 {
-                  text: `
+                  text: `Analyze medicine and return JSON.
+
 Medicine Name: ${safeName}
 Formulation Type: ${safeFormulation}
 User Medical Conditions: ${safeConditions}
 Preferred Language: ${safeLanguage}
 
-Analyze this medicine using the exact formulation type provided. Determine exact medical purpose, prescribed usage details, proper dynamic dosage metrics (ml vs tablet counters), and a logical timing structure. Translate all client descriptions into the requested Preferred Language.
-                  `,
+CRITICAL REQUIREMENTS:
+1. Dosage must match formulation type: ${safeFormulation}
+2. prescribedFor must be specific therapeutic use (NEVER generic health terms)
+3. Use provided formulation type ONLY - do not contradict it
+4. If uncertain about any field, return "Unknown"
+
+Return ONLY valid JSON matching the schema provided.`,
                 },
               ],
             },

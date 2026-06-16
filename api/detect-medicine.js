@@ -52,57 +52,40 @@ export async function detectMedicineHandler(req, res) {
             parts: [
               {
                 text: `
-You are an advanced pharmaceutical OCR assistant.
+You are an advanced pharmaceutical OCR assistant specialized in medicine package analysis.
 
-Your ONLY task is to identify the medicine name visible in the image.
+Your task is to extract medicine information from the image and return STRICT JSON.
+
+EXTRACT EXACTLY:
+1. medicineName: The exact brand/generic name printed on packaging
+2. formulation: The medicine form (Tablet, Capsule, Syrup, Suspension, Injection, Cream, Ointment, Spray, Drops, Powder)
+3. strength: The strength shown on packaging (e.g., "500mg", "100ml", "10%", "2%")
+4. packSize: Pack size if visible (e.g., "10 tablets", "100ml", "strip of 10")
+5. confidence: Your confidence level (0-100)
 
 STRICT RULES:
+- Do NOT guess or invent information.
+- Extract ONLY what is clearly visible on the packaging.
+- If a field is not visible, return "Unknown".
+- Formulation MUST be one of: Tablet, Capsule, Syrup, Suspension, Injection, Cream, Ointment, Spray, Drops, Powder, or Unknown
+- Do NOT add explanations or markdown.
+- Return ONLY valid JSON.
 
-- Return STRICT JSON.
+Focus on:
+- Primary text on packaging
+- Brand/product name
+- Form (tablets, syrup, etc.)
+- Strength markings
+- Pack information
 
+JSON Schema (REQUIRED):
 {
-  "medicineName": "",
-  "formulation": "",
-  "strength": "",
-  "packSize": "",
-  "confidence": 0
+  "medicineName": "string",
+  "formulation": "string",
+  "strength": "string",
+  "packSize": "string",
+  "confidence": number
 }
-
-RULES:
-
-- medicineName = brand/generic medicine name
-- formulation = Tablet, Capsule, Syrup, Suspension, Drops, Cream, Ointment, Injection, Inhaler
-- strength = printed strength such as 650mg, 500mg, 100ml
-- packSize = printed pack size if visible
-- confidence = 0-100
-
-If unknown use "Unknown".
-
-Do not guess.
-Return JSON only.
-- Do NOT explain anything.
-- Do NOT add markdown.
-- Do NOT add dosage unless it is part of the medicine name.
-- Ignore background text.
-- Ignore logos.
-- Ignore packaging decoration.
-- Ignore unrelated text.
-- NEVER guess.
-- If unclear return exactly: Unknown
-
-You must focus on:
-- strip text
-- medicine packaging
-- printed brand name
-- tablet/capsule/syrup label
-
-Examples of valid outputs:
-Paracetamol
-Dolo 650
-Augmentin
-Azithromycin
-Pantoprazole
-Unknown
                 `,
               },
             ],
@@ -133,10 +116,11 @@ return the most prominent medicine name only.
           ],
 
           generationConfig: {
+            responseMimeType: "application/json",
             temperature: 0.05,
             topP: 0.8,
             topK: 20,
-            maxOutputTokens: 200,
+            maxOutputTokens: 500,
           },
 
           safetySettings: [
@@ -194,26 +178,24 @@ return the most prominent medicine name only.
       });
     }
 
-    let medicineName = rawText
-      .trim()
-      .replace(/\n/g, "")
-      .replace(/["']/g, "")
-      .replace(/[*`#]/g, "");
+    let parsed;
 
-    // Extra cleanup
-    medicineName = medicineName
-      .replace(/^medicine\s*name\s*:/i, "")
-      .replace(/^name\s*:/i, "")
-      .trim();
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (e) {
+      console.error("Failed to parse Gemini JSON", rawText);
 
-    if (!medicineName) {
-      medicineName = "Unknown";
+      return res.status(502).json({
+        error: "Invalid JSON returned by Gemini",
+      });
     }
 
-    console.log(`✅ [detect-medicine] Medicine detected: ${medicineName}`);
-
     return res.status(200).json({
-      medicineName,
+      medicineName: parsed.medicineName || "Unknown",
+      formulation: parsed.formulation || "Unknown",
+      strength: parsed.strength || "Unknown",
+      packSize: parsed.packSize || "Unknown",
+      confidence: parsed.confidence || 0,
     });
   } catch (error) {
     console.error(

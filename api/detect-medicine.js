@@ -183,13 +183,13 @@ return the most prominent medicine name only.
     try {
       parsed = JSON.parse(rawText);
     } catch (e) {
-      console.error("Failed to parse Gemini JSON", rawText);
+      console.error("Failed to parse Gemini JSON:\n", rawText);
 
       return res.status(502).json({
         error: "Invalid JSON returned by Gemini",
+        rawResponse: rawText,
       });
     }
-
     return res.status(200).json({
       medicineName: parsed.medicineName || "Unknown",
       formulation: parsed.formulation || "Unknown",

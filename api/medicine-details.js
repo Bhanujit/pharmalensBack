@@ -7,15 +7,7 @@ export async function medicineDetailsHandler(req, res) {
     });
   }
 
-  // Destruction logic matches current flow, but safely processes 'formulation' parameter if provided
-  const {
-    medicineName,
-    formulation = "Unknown",
-    strength = "Unknown",
-    packSize = "Unknown",
-    userDiseases,
-    preferredLanguage = "en",
-  } = req.body;
+  const { medicineName, userDiseases, preferredLanguage = "en" } = req.body;
 
   if (!medicineName || typeof medicineName !== "string") {
     return res.status(400).json({
@@ -33,6 +25,7 @@ export async function medicineDetailsHandler(req, res) {
 
   if (!apiKey) {
     console.error("❌ GEMINI_API_KEY not configured");
+
     return res.status(500).json({
       error: "Backend not configured: GEMINI_API_KEY missing",
     });
@@ -42,13 +35,6 @@ export async function medicineDetailsHandler(req, res) {
     .replace(/[\r\n\t]/g, " ")
     .trim()
     .slice(0, 100);
-  const safeFormulation =
-    typeof formulation === "string"
-      ? formulation
-          .replace(/[\r\n\t]/g, " ")
-          .trim()
-          .slice(0, 50)
-      : "Unknown";
 
   const safeConditions =
     userDiseases
@@ -59,149 +45,171 @@ export async function medicineDetailsHandler(req, res) {
       )
       .filter(Boolean)
       .join(", ") || "None";
-
   const safeLanguage =
     typeof preferredLanguage === "string"
       ? preferredLanguage.trim().slice(0, 10)
       : "en";
-
   try {
-    console.log(
-      `📋 [medicine-details] Medicine: ${safeName} | Formulation: ${safeFormulation}`,
-    );
+    console.log(`📋 [medicine-details] Medicine: ${safeName}`);
+
     const startTime = Date.now();
+
     console.log("🔥 Sending request to Gemini");
 
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
+
         headers: {
           "Content-Type": "application/json",
         },
+
         signal: AbortSignal.timeout(60000),
+
         body: JSON.stringify({
           systemInstruction: {
             parts: [
               {
                 text: `
-You are a STRICT pharmaceutical information AI. Your responses must be PRECISE and FACTUAL ONLY.
+You are an advanced pharmaceutical AI assistant.
 
-=== FORMULATION CONSTRAINT (CRITICAL) ===
-Formulation Type Provided: ${safeFormulation}
-- You MUST ONLY use this formulation type in your dosage field.
-- If Formulation is "Syrup", dosage MUST describe syrup (e.g., "100 ml syrup", "5 ml syrup").
-- If Formulation is "Tablet", dosage MUST describe tablets (e.g., "500 mg tablet", "1 tablet").
-- If Formulation is "Capsule", dosage MUST describe capsules (e.g., "500 mg capsule", "1 capsule").
-- If Formulation is "Suspension", dosage MUST describe suspension (e.g., "200 mg/5ml suspension").
-- If Formulation is "Injection", dosage MUST describe injection (e.g., "1ml injection", "50 mg/ml").
-- NEVER return dosage that contradicts the formulation type.
-- NEVER invent quantity per day (e.g., "2 tablets daily", "5 ml twice daily").
+Your job is to provide highly accurate medicine analysis.
 
-=== PRESCRIBEDFOR FIELD (ABSOLUTE RULES) ===
-FORBIDDEN TERMS (NEVER use these):
-❌ "general health"
-❌ "overall wellness"
-❌ "supplement"
-❌ "health maintenance"
-❌ "nutritional support"
-❌ "well-being"
-❌ "health support"
-❌ "nutritional purposes"
+STRICT RULES:
+- All user-facing text must be returned in the user's preferred language.
+- Preferred language code: ${safeLanguage}
+- medicineName should remain in English.
+- translatedName should contain the translated/transliterated medicine name in the preferred language.
+- If preferredLanguage is "en", translatedName should be an empty string.
+- prescribedFor should be in the preferred language.
+- dosage should be in the preferred language.
+- description should be in the preferred language.
+- description should briefly explain what the medicine is used for.
+- description should be concise (1-2 sentences).
+- If uncertain return "Unknown".
+- NEVER guess medicine names.
+- NEVER invent medicine purposes.
+- NEVER hallucinate dosage.
+- NEVER use generic phrases like "general health".
+- If uncertain, return "Unknown".
+- Prefer medically realistic routines.
+- Return ONLY valid minified JSON.
+- No markdown.
+- No explanations.
+- No extra text.
 
-REQUIRED: State SPECIFIC therapeutic action:
-✅ "Fever and pain relief"
-✅ "Bacterial infection treatment"
-✅ "Blood pressure management"
-✅ "Thyroid hormone replacement"
-✅ "Acid reflux treatment"
-✅ "Antibiotic for respiratory infection"
-✅ "Vitamin B12 deficiency treatment"
+Medicine timing rules:
 
-IF medicine matches user conditions from: ${safeConditions}
-HIGHLIGHT that specific condition in prescribedFor and description.
+- Acidity medicines are usually before meals.
+- Antibiotics are usually after meals.
+- Sleeping medicines are before sleep.
+- Vitamins are usually after breakfast.
+- Painkillers are usually after meals.
+- Diabetes medicines depend on meal timing.
 
-IF completely uncertain about therapeutic use:
-Return "Unknown" - DO NOT GUESS.
+You must determine:
 
-=== DOSAGE FIELD RULES ===
-Dosage must describe ONLY:
-- Product strength (e.g., "500 mg", "100 ml")
-- Formulation type (e.g., "tablet", "syrup", "capsule")
-- Combined format: "500 mg tablet", "100 ml syrup"
+- accurate medicine purpose
+- dosage guidance
+- prescribed usage
+- short medicine description
+- realistic timing routine
+- short medicine description in the preferred language
+- Return all explanations in the preferred language.
+You must focus on:
+- strip text
+- medicine packaging
+- printed brand name
+- tablet/capsule/syrup label
+- make sure to consider the user's medical conditions when determining the medicine's purpose and usage.
+- analyze the medicine carefully and provide accurate information based on the medicine name and user's medical conditions.
+Return STRICT JSON using this schema:
 
-Dosage MUST NOT include:
-❌ Frequency (daily, twice daily)
-❌ Quantity per administration (2 tablets, 5 ml)
-❌ Administration instructions (take after meals, before sleep)
-❌ Duration (for 5 days)
-❌ Route assumptions
-
-=== LANGUAGE & OUTPUT ===
-Preferred Language: ${safeLanguage}
-- medicineName: Keep in ENGLISH (original)
-- translatedName: Translate to ${safeLanguage} (empty string if ${safeLanguage}="en")
-- description: Translate to ${safeLanguage}
-- prescribedFor: Translate to ${safeLanguage}
-- All routine timing descriptions: Translate to ${safeLanguage}
-
-=== TIMING RULES ===
-Based on medicine type (strict guidelines):
-- Acidity/Antacid medicines: beforeLunch=true, beforeDinner=true
-- Antibiotics: afterBreakfast=true, afterLunch=true, afterDinner=true
-- Sleeping aids: beforeSleep=true
-- Vitamins: afterBreakfast=true
-- Painkillers: afterMeals (breakfast, lunch, dinner as needed)
-
-IF formulation=${safeFormulation} is NOT in your knowledge:
-Return empty routine: { "beforeBreakfast": { "enabled": false }, ... all false ...}
-
-RETURN STRICT MINIFIED JSON ONLY:
 {
-  "medicineName": "string (English, as provided)",
-  "translatedName": "string (in ${safeLanguage}, empty if en)",
-  "dosage": "string (format + strength ONLY, matching ${safeFormulation})",
-  "prescribedFor": "string (specific therapeutic action, NEVER generic)",
-  "description": "string (1-2 sentences, what medicine does)",
+  "medicineName": "string",
+    "translatedName": "string",
+  "dosage": "string",
+  "prescribedFor": "string",
+   "description": "string",
   "routine": {
-    "beforeBreakfast": { "enabled": boolean, "minutes": number },
-    "afterBreakfast": { "enabled": boolean, "minutesAfterMealEnds": number },
-    "beforeLunch": { "enabled": boolean, "minutes": number },
-    "afterLunch": { "enabled": boolean, "minutesAfterMealEnds": number },
-    "beforeDinner": { "enabled": boolean, "minutes": number },
-    "afterDinner": { "enabled": boolean, "minutesAfterMealEnds": number },
-    "afterWakingUp": { "enabled": boolean, "time": "string" },
-    "beforeSleep": { "enabled": boolean, "time": "string" },
-    "customTime": { "enabled": boolean, "time": "string", "ampm": "AM" }
+    "beforeBreakfast": {
+      "enabled": boolean,
+      "minutes": number
+    },
+    "afterBreakfast": {
+      "enabled": boolean,
+      "minutesAfterMealEnds": number
+    },
+    "beforeLunch": {
+      "enabled": boolean,
+      "minutes": number
+    },
+    "afterLunch": {
+      "enabled": boolean,
+      "minutesAfterMealEnds": number
+    },
+    "beforeDinner": {
+      "enabled": boolean,
+      "minutes": number
+    },
+    "afterDinner": {
+      "enabled": boolean,
+      "minutesAfterMealEnds": number
+    },
+    "afterWakingUp": {
+      "enabled": boolean,
+      "time": "string"
+    },
+    "beforeSleep": {
+      "enabled": boolean,
+      "time": "string"
+    },
+    "customTime": {
+      "enabled": boolean,
+      "time": "string",
+      "ampm": "AM"
+    }
   }
 }
                 `,
               },
             ],
           },
+
           contents: [
             {
               role: "user",
+
               parts: [
                 {
-                  text: `Analyze medicine and return JSON.
+                  text: `
+Medicine Name:
+${safeName}
 
-Medicine Name: ${safeName}
-Formulation Type: ${safeFormulation}
-User Medical Conditions: ${safeConditions}
-Preferred Language: ${safeLanguage}
+User Medical Conditions:
+${safeConditions}
 
-CRITICAL REQUIREMENTS:
-1. Dosage must match formulation type: ${safeFormulation}
-2. prescribedFor must be specific therapeutic use (NEVER generic health terms)
-3. Use provided formulation type ONLY - do not contradict it
-4. If uncertain about any field, return "Unknown"
+Preferred Language:
+${safeLanguage}
+Analyze this medicine carefully.
 
-Return ONLY valid JSON matching the schema provided.`,
+Determine:
+- exact medicine purpose
+- prescribed usage
+- proper dosage guidance
+- realistic medicine timing
+- whether it should be taken before food, after food, or before sleep
+Return all explanations in the Preferred Language.
+Keep only the medicine name in English.
+Provide translatedName in the preferred language.
+If uncertain return "Unknown".
+                  `,
                 },
               ],
             },
           ],
+
           generationConfig: {
             responseMimeType: "application/json",
             temperature: 0.05,
@@ -217,7 +225,9 @@ Return ONLY valid JSON matching the schema provided.`,
 
     if (!response.ok) {
       const errorText = await response.text();
+
       console.error(`❌ Gemini API Error: ${response.status}`, errorText);
+
       return res.status(response.status).json({
         error: "Gemini API error",
         details: errorText.substring(0, 500),
@@ -225,25 +235,32 @@ Return ONLY valid JSON matching the schema provided.`,
     }
 
     const data = await response.json();
+
     let parsed;
 
     try {
       const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
       if (!rawText) {
         throw new Error("Gemini returned empty response");
       }
+
       parsed = JSON.parse(rawText);
+
       console.log(`✅ [medicine-details] Parsed successfully`);
     } catch (error) {
       console.warn("⚠️ Direct JSON parse failed. Using fallback parser.");
+
       parsed = parseAiJsonResponse(data);
     }
 
-    // Final safety normalization layer
+    // Final safety normalization
+
     parsed.medicineName = parsed.medicineName || safeName || "Unknown";
     parsed.translatedName =
       typeof parsed.translatedName === "string" ? parsed.translatedName : "";
     parsed.dosage = parsed.dosage || "Unknown";
+
     parsed.prescribedFor = parsed.prescribedFor || "Unknown";
     parsed.description = parsed.description || "Unknown";
     parsed.routine = parsed.routine || {};
@@ -251,9 +268,11 @@ Return ONLY valid JSON matching the schema provided.`,
     console.log(
       `✅ [medicine-details] Completed in ${Date.now() - startTime}ms`,
     );
+
     return res.status(200).json(parsed);
   } catch (error) {
     console.error(`❌ [medicine-details] Handler error:`, error.message);
+
     return res.status(500).json({
       error: "Internal server error",
       details: error.message,

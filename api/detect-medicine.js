@@ -58,7 +58,28 @@ Your ONLY task is to identify the medicine name visible in the image.
 
 STRICT RULES:
 
-- Return ONLY the medicine name.
+- Return STRICT JSON.
+
+{
+  "medicineName": "",
+  "formulation": "",
+  "strength": "",
+  "packSize": "",
+  "confidence": 0
+}
+
+RULES:
+
+- medicineName = brand/generic medicine name
+- formulation = Tablet, Capsule, Syrup, Suspension, Drops, Cream, Ointment, Injection, Inhaler
+- strength = printed strength such as 650mg, 500mg, 100ml
+- packSize = printed pack size if visible
+- confidence = 0-100
+
+If unknown use "Unknown".
+
+Do not guess.
+Return JSON only.
 - Do NOT explain anything.
 - Do NOT add markdown.
 - Do NOT add dosage unless it is part of the medicine name.

@@ -51,59 +51,38 @@ export async function detectMedicineHandler(req, res) {
           systemInstruction: {
             parts: [
               {
-                text: `You are an expert pharmaceutical OCR system.
+                text: `
+You are an advanced pharmaceutical OCR assistant.
 
-Your ONLY task is to identify medicines from packaging images.
+Your ONLY task is to identify the medicine name visible in the image.
 
-You MUST return ONLY valid JSON in this exact format:
-{
-  "medicineName": "string",
-  "dosageForm": "string",
-  "strength": "string"
-}
+STRICT RULES:
 
-ALLOWED dosageForm values (choose EXACTLY one):
-- tablet
-- capsule
-- syrup
-- suspension
-- drops
-- injection
-- cream
-- ointment
-- gel
-- powder
-- patch
-- spray
-- unknown
+- Return ONLY the medicine name.
+- Do NOT explain anything.
+- Do NOT add markdown.
+- Do NOT add dosage unless it is part of the medicine name.
+- Ignore background text.
+- Ignore logos.
+- Ignore packaging decoration.
+- Ignore unrelated text.
+- NEVER guess.
+- If unclear return exactly: Unknown
 
-EXTRACTION RULES:
-1. Extract the PRIMARY medicine name from packaging/label (not brand owner, not company)
-2. Identify the actual FORM of the medicine (is it a liquid? solid? paste?)
-3. Extract the strength if visible (e.g., "500mg", "10mg/5ml")
+You must focus on:
+- strip text
+- medicine packaging
+- printed brand name
+- tablet/capsule/syrup label
 
-CRITICAL:
-- If you see "Oral Suspension" or "Liquid" or "Syrup" anywhere → dosageForm is "syrup"
-- If you see "Tablet", "Tab" → dosageForm is "tablet"
-- If you see "Capsule", "Cap" → dosageForm is "capsule"
-- If you see "Drops", "Drop" → dosageForm is "drops"
-- If you see a bottle/liquid bottle → likely syrup or suspension
-- If you see solid round/oval shapes → likely tablet or capsule
-- If you see a tube/container → likely cream or ointment
-
-EXAMPLES:
-{"medicineName": "Paracetamol", "dosageForm": "tablet", "strength": "500mg"}
-{"medicineName": "Dolo", "dosageForm": "syrup", "strength": "125mg/5ml"}
-{"medicineName": "Cetirizine", "dosageForm": "tablet", "strength": "10mg"}
-{"medicineName": "Azithromycin", "dosageForm": "suspension", "strength": "200mg/5ml"}
-{"medicineName": "Unknown", "dosageForm": "unknown", "strength": ""}
-
-NEVER:
-- Guess or invent
-- Return generic terms
-- Include explanations
-- Add markdown
-- Return anything except JSON`,
+Examples of valid outputs:
+Paracetamol
+Dolo 650
+Augmentin
+Azithromycin
+Pantoprazole
+Unknown
+                `,
               },
             ],
           },
@@ -114,17 +93,12 @@ NEVER:
 
               parts: [
                 {
-                  text: `Analyze this medicine packaging image carefully.
+                  text: `
+Extract ONLY the medicine name from this image.
 
-Extract and return ONLY JSON:
-{
-  "medicineName": "the medicine name",
-  "dosageForm": "tablet/capsule/syrup/suspension/drops/injection/cream/ointment/gel/powder/patch/spray/unknown",
-  "strength": "e.g., 500mg or 10mg/5ml"
-}
-
-CRITICAL: Look at the FORM of the medicine (is it a liquid bottle? solid tablets? a tube?).
-Return the actual dosageForm, not what you assume.`,
+If multiple medicines exist,
+return the most prominent medicine name only.
+                  `,
                 },
 
                 {
@@ -138,7 +112,6 @@ Return the actual dosageForm, not what you assume.`,
           ],
 
           generationConfig: {
-            responseMimeType: "application/json",
             temperature: 0.05,
             topP: 0.8,
             topK: 20,
@@ -200,59 +173,26 @@ Return the actual dosageForm, not what you assume.`,
       });
     }
 
-    let parsed;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch (e) {
-      console.error(
-        "❌ [detect-medicine] Failed to parse Gemini JSON",
-        rawText,
-      );
-      return res.status(502).json({
-        error: "Invalid JSON response from AI model",
-      });
-    }
-
-    // Normalize response
-    const medicineName = (parsed.medicineName || "Unknown")
+    let medicineName = rawText
       .trim()
       .replace(/\n/g, "")
       .replace(/["']/g, "")
       .replace(/[*`#]/g, "");
 
-    const dosageForm = (parsed.dosageForm || "unknown").toLowerCase().trim();
+    // Extra cleanup
+    medicineName = medicineName
+      .replace(/^medicine\s*name\s*:/i, "")
+      .replace(/^name\s*:/i, "")
+      .trim();
 
-    const strength = (parsed.strength || "").trim();
+    if (!medicineName) {
+      medicineName = "Unknown";
+    }
 
-    // Validate dosageForm
-    const validForms = [
-      "tablet",
-      "capsule",
-      "syrup",
-      "suspension",
-      "drops",
-      "injection",
-      "cream",
-      "ointment",
-      "gel",
-      "powder",
-      "patch",
-      "spray",
-      "unknown",
-    ];
-
-    const finalDosageForm = validForms.includes(dosageForm)
-      ? dosageForm
-      : "unknown";
-
-    console.log(
-      `✅ [detect-medicine] Detected: ${medicineName} | Form: ${finalDosageForm} | Strength: ${strength}`,
-    );
+    console.log(`✅ [detect-medicine] Medicine detected: ${medicineName}`);
 
     return res.status(200).json({
       medicineName,
-      dosageForm: finalDosageForm,
-      strength,
     });
   } catch (error) {
     console.error(

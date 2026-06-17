@@ -1,28 +1,31 @@
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
 dotenv.config();
 
-import express from 'express';
-import cors from 'cors';
+import express from "express";
+import cors from "cors";
 
-import { verifyFirebaseToken } from './middleware/auth.js';
-import { apiLimiter } from './middleware/rateLimiter.js';
+import { verifyFirebaseToken } from "./middleware/auth.js";
+import { apiLimiter } from "./middleware/rateLimiter.js";
 
-import { detectMedicineHandler } from './api/detect-medicine.js';
-import { medicineDetailsHandler } from './api/medicine-details.js';
-import { checkGeminiHandler } from './api/check-gemini.js';
+import { detectMedicineHandler } from "./api/detect-medicine.js";
+import { medicineDetailsHandler } from "./api/medicine-details.js";
+import { checkGeminiHandler } from "./api/check-gemini.js";
 
 const app = express();
+
+// 💡 Trust proxy for Render deployment - allows rate limiter to read real client IPs
+app.set("trust proxy", 1);
 
 const PORT = Number(process.env.PORT || 3002);
 
 // Your PC local IPv4
-const LOCAL_IP = '192.168.29.245';
+const LOCAL_IP = "192.168.29.245";
 
 // Allowed origins for Expo + local development
 const allowedOrigins = [
-  'http://localhost:19006',
-  'http://127.0.0.1:19006',
-  'http://10.0.2.2:19006',
+  "http://localhost:19006",
+  "http://127.0.0.1:19006",
+  "http://10.0.2.2:19006",
   `http://${LOCAL_IP}:19006`,
   /^http:\/\/192\.168\.\d+\.\d+:19006$/,
 ];
@@ -36,7 +39,7 @@ app.use(
       }
 
       const isAllowed = allowedOrigins.some((allowedOrigin) => {
-        if (typeof allowedOrigin === 'string') {
+        if (typeof allowedOrigin === "string") {
           return allowedOrigin === origin;
         }
 
@@ -47,29 +50,29 @@ app.use(
         return callback(null, true);
       }
 
-      console.error('❌ Blocked by CORS:', origin);
+      console.error("❌ Blocked by CORS:", origin);
 
-      return callback(new Error('CORS policy: Origin not allowed'));
+      return callback(new Error("CORS policy: Origin not allowed"));
     },
 
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-  })
+  }),
 );
 
 // Handle preflight requests
-app.options('*', cors());
+app.options("*", cors());
 
 // Increased payload limit for image uploads
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: "50mb" }));
 
 // --------------------
 // Health Check
 // --------------------
-app.get('/health', (_req, res) => {
+app.get("/health", (_req, res) => {
   return res.json({
-    status: 'ok',
+    status: "ok",
     timestamp: new Date().toISOString(),
     server: `http://${LOCAL_IP}:${PORT}`,
   });
@@ -80,13 +83,13 @@ app.get('/health', (_req, res) => {
 // --------------------
 const DEBUG_GEMINI_SECRET = process.env.DEBUG_GEMINI_SECRET;
 
-app.get('/debug/gemini', (req, res) => {
+app.get("/debug/gemini", (req, res) => {
   if (
     DEBUG_GEMINI_SECRET &&
-    req.header('x-debug-secret') !== DEBUG_GEMINI_SECRET
+    req.header("x-debug-secret") !== DEBUG_GEMINI_SECRET
   ) {
     return res.status(403).json({
-      error: 'Forbidden',
+      error: "Forbidden",
     });
   }
 
@@ -96,18 +99,18 @@ app.get('/debug/gemini', (req, res) => {
 // --------------------
 // Protected API Routes
 // --------------------
-app.use('/api', verifyFirebaseToken, apiLimiter);
+app.use("/api", verifyFirebaseToken, apiLimiter);
 
-app.post('/api/detect-medicine', detectMedicineHandler);
+app.post("/api/detect-medicine", detectMedicineHandler);
 
-app.post('/api/medicine-details', medicineDetailsHandler);
+app.post("/api/medicine-details", medicineDetailsHandler);
 
 // --------------------
 // 404 Handler
 // --------------------
 app.use((_req, res) => {
   return res.status(404).json({
-    error: 'Not Found',
+    error: "Not Found",
   });
 });
 
@@ -115,18 +118,18 @@ app.use((_req, res) => {
 // Global Error Handler
 // --------------------
 app.use((err, _req, res, _next) => {
-  console.error('🔥 Unhandled server error:', err);
+  console.error("🔥 Unhandled server error:", err);
 
   return res.status(500).json({
-    error: 'Internal server error',
+    error: "Internal server error",
   });
 });
 
 // --------------------
 // Start Server
 // --------------------
-app.listen(PORT, '0.0.0.0', () => {
-  console.log('\n🚀 PharmaLens Backend Running');
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("\n🚀 PharmaLens Backend Running");
   console.log(`🌐 Local Network: http://${LOCAL_IP}:${PORT}`);
   console.log(`📱 Expo Device Access Enabled`);
   console.log(`🛡️ CORS Configured`);
